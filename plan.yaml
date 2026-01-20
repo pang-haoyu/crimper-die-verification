@@ -1,0 +1,44 @@
+project: smart-die-validation
+
+splits:
+  train:
+    sessions:
+      s1:
+        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        per_die:
+          baseline: 14
+          angle: 6
+          lighting: 6
+          clean_oily: 5
+          rotation: 4
+
+      s2:
+        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        per_die:
+          baseline: 14
+          angle: 6
+          lighting: 6
+          clean_oily: 5
+          rotation: 4
+
+  val:
+    sessions:
+      s3:
+        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        per_die:
+          baseline: 5
+          angle: 3
+          lighting: 3
+          clean_oily: 2
+          rotation: 2
+
+  test:
+    sessions:
+      s4:
+        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        per_die:
+          baseline: 5
+          angle: 3
+          lighting: 3
+          clean_oily: 2
+          rotation: 2
