@@ -4,7 +4,7 @@ splits:
   train:
     sessions:
       s1:
-        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        die_sizes: [17, 20, 24, 28, 32, 36, 40, 44, 50]
         per_die:
           baseline: 14
           angle: 6
@@ -13,7 +13,7 @@ splits:
           rotation: 4
 
       s2:
-        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        die_sizes: [17, 20, 24, 28, 32, 36, 40, 44, 50]
         per_die:
           baseline: 14
           angle: 6
@@ -24,7 +24,7 @@ splits:
   val:
     sessions:
       s3:
-        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        die_sizes: [17, 20, 24, 28, 32, 36, 40, 44, 50]
         per_die:
           baseline: 5
           angle: 3
@@ -35,7 +35,7 @@ splits:
   test:
     sessions:
       s4:
-        die_sizes: [17, 20, 24, 28, 32, 40, 44, 50]
+        die_sizes: [17, 20, 24, 28, 32, 36, 40, 44, 50]
         per_die:
           baseline: 5
           angle: 3
