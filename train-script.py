@@ -773,21 +773,21 @@ def main() -> None:
 
                 # Hard-negative TAR@FAR (realistic)
                 for far, tar in metrics.tar_at_far_hard.items():
-                    mlflow.log_metric(f"val_TAR@FAR_hard_{far:.3f}", tar, step=epoch)
+                    mlflow.log_metric(f"val_TAR_at_FAR_hard_{far:.3f}", tar, step=epoch)
                 for far, thr in metrics.thr_at_far_hard.items():
-                    mlflow.log_metric(f"val_thr@FAR_hard_{far:.3f}", thr, step=epoch)
+                    mlflow.log_metric(f"val_thr_at_FAR_hard_{far:.3f}", thr, step=epoch)
 
                 # All-negative TAR@FAR (optimistic baseline)
                 for far, tar in metrics.tar_at_far_all.items():
-                    mlflow.log_metric(f"val_TAR@FAR_all_{far:.3f}", tar, step=epoch)
+                    mlflow.log_metric(f"val_TAR_at_FAR_all_{far:.3f}", tar, step=epoch)
                 for far, thr in metrics.thr_at_far_all.items():
-                    mlflow.log_metric(f"val_thr@FAR_all_{far:.3f}", thr, step=epoch)
+                    mlflow.log_metric(f"val_thr_at_FAR_all_{far:.3f}", thr, step=epoch)
 
                 # Adjacent-only TAR@FAR (domain-relevant, if adjacency inferred)
                 for far, tar in metrics.tar_at_far_adj.items():
-                    mlflow.log_metric(f"val_TAR@FAR_adj_{far:.3f}", tar, step=epoch)
+                    mlflow.log_metric(f"val_TAR_at_FAR_adj_{far:.3f}", tar, step=epoch)
                 for far, thr in metrics.thr_at_far_adj.items():
-                    mlflow.log_metric(f"val_thr@FAR_adj_{far:.3f}", thr, step=epoch)
+                    mlflow.log_metric(f"val_thr_at_FAR_adj_{far:.3f}", thr, step=epoch)
 
                 # Choose checkpoint score: prefer hard; else fall back to all
                 if checkpoint_far in metrics.tar_at_far_hard:
@@ -799,7 +799,7 @@ def main() -> None:
                     ckpt_thr = metrics.thr_at_far_all[checkpoint_far]
                     which = "all"
 
-                mlflow.log_metric(f"checkpoint_score_TAR@FAR_{which}_{checkpoint_far:.3f}", ckpt_score, step=epoch)
+                mlflow.log_metric(f"checkpoint_score_TAR_at_FAR_{which}_{checkpoint_far:.3f}", ckpt_score, step=epoch)
 
                 if ckpt_score > best_score:
                     best_score = ckpt_score
@@ -865,9 +865,9 @@ def main() -> None:
             "hard_topk": args.hard_topk,
             "thresholds": thresholds,
             "final_nearest_centroid_acc": final_metrics.nearest_centroid_acc,
-            "final_TAR@FAR_hard": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_hard.items()},
-            "final_TAR@FAR_all": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_all.items()},
-            "final_TAR@FAR_adj": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_adj.items()},
+            "final_TAR_at_FAR_hard": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_hard.items()},
+            "final_TAR_at_FAR_all": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_all.items()},
+            "final_TAR_at_FAR_adj": {f"{k:.3f}": float(v) for k, v in final_metrics.tar_at_far_adj.items()},
         }
 
         meta_path = args.outdir / "export_meta.json"
