@@ -49,6 +49,7 @@ import torch
 import torch.nn as nn
 import timm
 from torchvision import transforms
+from PIL import Image
 
 
 # -----------------------------
@@ -56,9 +57,9 @@ from torchvision import transforms
 # -----------------------------
 @dataclass(frozen=True)
 class DetectionResult:
-    quad: np.ndarray       # (4,2) float32 TL,TR,BR,BL
-    warped: np.ndarray     # (out_size,out_size,3) BGR
-    debug_poly: np.ndarray # polygon points int32 for drawing
+    quad: np.ndarray  # (4,2) float32 TL,TR,BR,BL
+    warped: np.ndarray  # (out_size,out_size,3) BGR
+    debug_poly: np.ndarray  # polygon points int32 for drawing
 
 
 def get_aruco_dict(name: str) -> cv2.aruco_Dictionary:
@@ -99,7 +100,7 @@ def detect_and_warp(
     aruco_dict: cv2.aruco_Dictionary,
     out_size: int,
     expected_ids: Optional[List[int]],
-    min_area: float
+    min_area: float,
 ) -> Optional[DetectionResult]:
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
 
@@ -131,7 +132,9 @@ def detect_and_warp(
             return None
         chosen = {mid: valid[mid] for mid in expected_ids}
     else:
-        items = sorted(valid.items(), key=lambda kv: marker_area(kv[1]), reverse=True)[:4]
+        items = sorted(valid.items(), key=lambda kv: marker_area(kv[1]), reverse=True)[
+            :4
+        ]
         chosen = dict(items)
 
     inner_pts = []
@@ -148,7 +151,9 @@ def detect_and_warp(
         dtype=np.float32,
     )
     M = cv2.getPerspectiveTransform(quad, dst)
-    warped = cv2.warpPerspective(frame_bgr, M, (out_size, out_size), flags=cv2.INTER_LINEAR)
+    warped = cv2.warpPerspective(
+        frame_bgr, M, (out_size, out_size), flags=cv2.INTER_LINEAR
+    )
     debug_poly = quad.astype(np.int32).reshape(-1, 1, 2)
     return DetectionResult(quad=quad, warped=warped, debug_poly=debug_poly)
 
@@ -156,7 +161,9 @@ def detect_and_warp(
 # -----------------------------
 # Model (embedding) + transforms
 # -----------------------------
-def imagenet_normalize() -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+def imagenet_normalize() -> Tuple[
+    Tuple[float, float, float], Tuple[float, float, float]
+]:
     mean = (0.485, 0.456, 0.406)
     std = (0.229, 0.224, 0.225)
     return mean, std
@@ -167,7 +174,9 @@ def l2_normalize(x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
 
 
 class EfficientNetEmbedding(nn.Module):
-    def __init__(self, backbone_name: str, embedding_dim: int, pretrained: bool = False):
+    def __init__(
+        self, backbone_name: str, embedding_dim: int, pretrained: bool = False
+    ):
         super().__init__()
         self.backbone = timm.create_model(
             backbone_name,
@@ -189,12 +198,14 @@ class EfficientNetEmbedding(nn.Module):
 
 def build_val_transform(input_size: int) -> transforms.Compose:
     mean, std = imagenet_normalize()
-    return transforms.Compose([
-        transforms.Resize(int(input_size * 1.15)),
-        transforms.CenterCrop(input_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean, std=std),
-    ])
+    return transforms.Compose(
+        [
+            transforms.Resize(int(input_size * 1.15)),
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std),
+        ]
+    )
 
 
 # -----------------------------
@@ -220,10 +231,10 @@ class SessionDecision:
 
 
 def label_frame_3state(
-    sims_all: np.ndarray,            # (C,)
+    sims_all: np.ndarray,  # (C,)
     rec_idx: int,
     tau: float,
-    margin: float
+    margin: float,
 ) -> Tuple[str, int, float, float]:
     """
     Returns:
@@ -276,7 +287,7 @@ def run_session(
     roi_size: int,
     min_marker_area: float,
     model: nn.Module,
-    centroids: torch.Tensor,            # (C,D) normalized
+    centroids: torch.Tensor,  # (C,D) normalized
     classes: List[str],
     class_to_idx: Dict[str, int],
     recommended: str,
@@ -293,7 +304,9 @@ def run_session(
 
     rec_idx = class_to_idx.get(recommended)
     if rec_idx is None:
-        raise ValueError(f"Recommended class '{recommended}' not found in model classes.")
+        raise ValueError(
+            f"Recommended class '{recommended}' not found in model classes."
+        )
 
     # Counters
     pass_c = 0
@@ -328,16 +341,14 @@ def run_session(
             valid += 1
 
             roi_rgb = cv2.cvtColor(det.warped, cv2.COLOR_BGR2RGB)
-            x = tfm(roi_rgb).unsqueeze(0).to(device)  # (1,3,H,W)
+            roi_pil = Image.fromarray(roi_rgb)  # ✅ convert numpy -> PIL
+            x = tfm(roi_pil).unsqueeze(0).to(device)  # now Resize/CenterCrop work
 
-            emb = model(x)                 # (1,D), normalized
+            emb = model(x)  # (1,D), normalized
             sims = (emb @ centroids.t())[0].detach().float().cpu().numpy()  # (C,)
 
             label, top1_idx, s_rec, s_top1 = label_frame_3state(
-                sims_all=sims,
-                rec_idx=rec_idx,
-                tau=tau,
-                margin=margin
+                sims_all=sims, rec_idx=rec_idx, tau=tau, margin=margin
             )
 
             s_rec_list.append(s_rec)
@@ -379,7 +390,9 @@ def run_session(
     top_wrong_class = None
     top_wrong_count = 0
     if wrong_top1_idxs:
-        vals, counts = np.unique(np.array(wrong_top1_idxs, dtype=np.int32), return_counts=True)
+        vals, counts = np.unique(
+            np.array(wrong_top1_idxs, dtype=np.int32), return_counts=True
+        )
         j = int(np.argmax(counts))
         top_wrong_idx = int(vals[j])
         top_wrong_count = int(counts[j])
@@ -393,33 +406,57 @@ def run_session(
         return float(np.min(x)) if x else float("nan")
 
     total = max(1, valid)
-    return SessionDecision(
-        decision=decision,
-        valid_frames=valid,
-        pass_frames=pass_c,
-        fail_frames=fail_c,
-        uncertain_frames=unc_c,
-        pass_ratio=float(pass_c / total),
-        fail_ratio=float(fail_c / total),
-        uncertain_ratio=float(unc_c / total),
-        mean_sim_rec=safe_mean(s_rec_list),
-        min_sim_rec=safe_min(s_rec_list),
-        mean_sim_best=safe_mean(s_top1_list),
-        min_sim_best=safe_min(s_top1_list),
-        top_wrong_class=top_wrong_class,
-        top_wrong_count=top_wrong_count,
-        latency_ms=latency_ms
-    ), last_frame, last_roi
+    return (
+        SessionDecision(
+            decision=decision,
+            valid_frames=valid,
+            pass_frames=pass_c,
+            fail_frames=fail_c,
+            uncertain_frames=unc_c,
+            pass_ratio=float(pass_c / total),
+            fail_ratio=float(fail_c / total),
+            uncertain_ratio=float(unc_c / total),
+            mean_sim_rec=safe_mean(s_rec_list),
+            min_sim_rec=safe_min(s_rec_list),
+            mean_sim_best=safe_mean(s_top1_list),
+            min_sim_best=safe_min(s_top1_list),
+            top_wrong_class=top_wrong_class,
+            top_wrong_count=top_wrong_count,
+            latency_ms=latency_ms,
+        ),
+        last_frame,
+        last_roi,
+    )
 
 
 # -----------------------------
 # UI helpers
 # -----------------------------
-def draw_overlay(img: np.ndarray, lines: List[str], x: int = 10, y: int = 25, dy: int = 22) -> np.ndarray:
+def draw_overlay(
+    img: np.ndarray, lines: List[str], x: int = 10, y: int = 25, dy: int = 22
+) -> np.ndarray:
     out = img.copy()
     for i, line in enumerate(lines):
-        cv2.putText(out, line, (x, y + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-        cv2.putText(out, line, (x, y + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(
+            out,
+            line,
+            (x, y + i * dy),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            out,
+            line,
+            (x, y + i * dy),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 0),
+            1,
+            cv2.LINE_AA,
+        )
     return out
 
 
@@ -427,48 +464,113 @@ def draw_overlay(img: np.ndarray, lines: List[str], x: int = 10, y: int = 25, dy
 # CLI + loading
 # -----------------------------
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Live Smart Die Validation UI (PASS/FAIL/UNCERTAIN)")
-    p.add_argument("--artifacts", type=str, required=True,
-                   help="Training output directory containing deploy_model.pt and centroids.npy (and optionally export_meta.json).")
-    p.add_argument("--pairs", type=str, required=True,
-                   help="JSON file containing list of die pairs to test.")
-    p.add_argument("--out", type=str, default="live_results_3state.jsonl",
-                   help="Output log file (JSON lines).")
+    p = argparse.ArgumentParser(
+        description="Live Smart Die Validation UI (PASS/FAIL/UNCERTAIN)"
+    )
+    p.add_argument(
+        "--artifacts",
+        type=str,
+        required=True,
+        help="Training output directory containing deploy_model.pt and centroids.npy (and optionally export_meta.json).",
+    )
+    p.add_argument(
+        "--pairs",
+        type=str,
+        required=True,
+        help="JSON file containing list of die pairs to test.",
+    )
+    p.add_argument(
+        "--out",
+        type=str,
+        default="live_results_3state.jsonl",
+        help="Output log file (JSON lines).",
+    )
 
     p.add_argument("--camera", type=int, default=0)
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
 
-    p.add_argument("--aruco-dict", type=str, default="DICT_4X4_50",
-                   help="OpenCV aruco dictionary name (must exist in cv2.aruco).")
-    p.add_argument("--ids", type=str, default="",
-                   help="Optional: 4 comma-separated ArUco IDs to lock onto (e.g., '0,1,2,3').")
-    p.add_argument("--min-marker-area", type=float, default=900.0,
-                   help="Min marker area in px^2 to accept a detected marker.")
-    p.add_argument("--roi-size", type=int, default=224,
-                   help="Warped ROI output size (typically equals training input size; default 224).")
+    p.add_argument(
+        "--aruco-dict",
+        type=str,
+        default="DICT_4X4_50",
+        help="OpenCV aruco dictionary name (must exist in cv2.aruco).",
+    )
+    p.add_argument(
+        "--ids",
+        type=str,
+        default="",
+        help="Optional: 4 comma-separated ArUco IDs to lock onto (e.g., '0,1,2,3').",
+    )
+    p.add_argument(
+        "--min-marker-area",
+        type=float,
+        default=900.0,
+        help="Min marker area in px^2 to accept a detected marker.",
+    )
+    p.add_argument(
+        "--roi-size",
+        type=int,
+        default=224,
+        help="Warped ROI output size (typically equals training input size; default 224).",
+    )
 
-    p.add_argument("--duration", type=float, default=3.0,
-                   help="Capture window per validation trigger (seconds).")
-    p.add_argument("--interval-ms", type=int, default=150,
-                   help="Sampling interval in ms during capture window.")
-    p.add_argument("--min-valid", type=int, default=10,
-                   help="Minimum valid ROI frames required; else session is UNCERTAIN.")
+    p.add_argument(
+        "--duration",
+        type=float,
+        default=3.0,
+        help="Capture window per validation trigger (seconds).",
+    )
+    p.add_argument(
+        "--interval-ms",
+        type=int,
+        default=150,
+        help="Sampling interval in ms during capture window.",
+    )
+    p.add_argument(
+        "--min-valid",
+        type=int,
+        default=10,
+        help="Minimum valid ROI frames required; else session is UNCERTAIN.",
+    )
 
-    p.add_argument("--threshold", type=float, default=None,
-                   help="Override threshold tau directly. If set, ignores --threshold-source.")
-    p.add_argument("--threshold-source", type=str, default="meta_adj_005",
-                   choices=[
-                       "meta_adj_005", "meta_hard_005", "meta_all_005",
-                       "meta_adj_001", "meta_hard_001", "meta_all_001",
-                       "meta_adj_010", "meta_hard_010", "meta_all_010"
-                   ],
-                   help="Where to pull tau from export_meta.json if --threshold not set.")
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="Override threshold tau directly. If set, ignores --threshold-source.",
+    )
+    p.add_argument(
+        "--threshold-source",
+        type=str,
+        default="meta_adj_005",
+        choices=[
+            "meta_adj_005",
+            "meta_hard_005",
+            "meta_all_005",
+            "meta_adj_001",
+            "meta_hard_001",
+            "meta_all_001",
+            "meta_adj_010",
+            "meta_hard_010",
+            "meta_all_010",
+        ],
+        help="Where to pull tau from export_meta.json if --threshold not set.",
+    )
 
-    p.add_argument("--margin", type=float, default=0.05,
-                   help="FAIL margin: require (best_other - recommended) >= margin. Set 0.0 to disable.")
-    p.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"],
-                   help="Device to run inference on.")
+    p.add_argument(
+        "--margin",
+        type=float,
+        default=0.05,
+        help="FAIL margin: require (best_other - recommended) >= margin. Set 0.0 to disable.",
+    )
+    p.add_argument(
+        "--device",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda"],
+        help="Device to run inference on.",
+    )
     return p.parse_args()
 
 
@@ -498,7 +600,9 @@ def threshold_from_meta(meta: Dict[str, Any], source: str) -> float:
     try:
         return float(meta["thresholds"][kind][far])
     except Exception as e:
-        raise ValueError(f"Could not read threshold from meta with source={source}: {e}")
+        raise ValueError(
+            f"Could not read threshold from meta with source={source}: {e}"
+        )
 
 
 def main() -> None:
@@ -539,10 +643,14 @@ def main() -> None:
         tau_source = args.threshold_source
 
     # Build model
-    model = EfficientNetEmbedding(backbone_name=backbone, embedding_dim=embedding_dim, pretrained=False)
+    model = EfficientNetEmbedding(
+        backbone_name=backbone, embedding_dim=embedding_dim, pretrained=False
+    )
     model.load_state_dict(bundle["model_state"], strict=True)
 
-    device = torch.device("cuda" if (args.device == "cuda" and torch.cuda.is_available()) else "cpu")
+    device = torch.device(
+        "cuda" if (args.device == "cuda" and torch.cuda.is_available()) else "cpu"
+    )
     model.to(device).eval()
 
     # Load centroids
@@ -553,16 +661,22 @@ def main() -> None:
     centroids = l2_normalize(centroids).to(device)
 
     if centroids.shape[0] != len(classes):
-        raise SystemExit(f"Centroids count ({centroids.shape[0]}) != number of classes ({len(classes)}).")
+        raise SystemExit(
+            f"Centroids count ({centroids.shape[0]}) != number of classes ({len(classes)})."
+        )
 
     class_to_idx = {c: i for i, c in enumerate(classes)}
 
     # Validate pairs against known classes
     for i, r in enumerate(pairs):
         if r["recommended"] not in class_to_idx:
-            raise SystemExit(f"Pairs[{i}].recommended='{r['recommended']}' not in model classes: {classes}")
+            raise SystemExit(
+                f"Pairs[{i}].recommended='{r['recommended']}' not in model classes: {classes}"
+            )
         if r["installed"] not in class_to_idx:
-            raise SystemExit(f"Pairs[{i}].installed='{r['installed']}' not in model classes: {classes}")
+            raise SystemExit(
+                f"Pairs[{i}].installed='{r['installed']}' not in model classes: {classes}"
+            )
 
     tfm = build_val_transform(input_size=input_size)
 
@@ -590,7 +704,9 @@ def main() -> None:
     print("  q or ESC : quit")
     print("")
     print(f"Model classes: {classes}")
-    print(f"tau={tau:.6f} (source={tau_source})  margin={args.margin:.3f}  min_valid={args.min_valid}")
+    print(
+        f"tau={tau:.6f} (source={tau_source})  margin={args.margin:.3f}  min_valid={args.min_valid}"
+    )
     print(f"Logging to: {out_path.resolve()}")
 
     idx = 0
@@ -619,7 +735,7 @@ def main() -> None:
             cv2.polylines(cam_vis, [det.debug_poly], True, (0, 255, 0), 2)
 
         lines = [
-            f"Pair {idx+1}/{len(pairs)}  type={ptype}",
+            f"Pair {idx + 1}/{len(pairs)}  type={ptype}",
             f"Recommended: {recommended}",
             f"Installed:   {installed}",
             f"tau={tau:.4f} margin={args.margin:.3f} min_valid={args.min_valid}",
@@ -633,8 +749,13 @@ def main() -> None:
                 f"ratios P/F/U={last_session.pass_ratio:.2f}/{last_session.fail_ratio:.2f}/{last_session.uncertain_ratio:.2f}  "
                 f"latency={last_session.latency_ms:.0f}ms",
             ]
-            if last_session.decision == "FAIL" and last_session.top_wrong_class is not None:
-                lines.append(f"FAIL mostly matched: {last_session.top_wrong_class} (count={last_session.top_wrong_count})")
+            if (
+                last_session.decision == "FAIL"
+                and last_session.top_wrong_class is not None
+            ):
+                lines.append(
+                    f"FAIL mostly matched: {last_session.top_wrong_class} (count={last_session.top_wrong_count})"
+                )
 
         cam_vis = draw_overlay(cam_vis, lines)
         cv2.imshow("Live Camera", cam_vis)
@@ -643,8 +764,15 @@ def main() -> None:
             cv2.imshow("ROI Crop", det.warped)
         else:
             blank = np.zeros((args.roi_size, args.roi_size, 3), dtype=np.uint8)
-            cv2.putText(blank, "NO ROI", (30, args.roi_size // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+            cv2.putText(
+                blank,
+                "NO ROI",
+                (30, args.roi_size // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (255, 255, 255),
+                2,
+            )
             cv2.imshow("ROI Crop", blank)
 
         key = cv2.waitKey(1) & 0xFF
@@ -688,7 +816,6 @@ def main() -> None:
                 "recommended": recommended,
                 "installed": installed,
                 "is_correct": is_correct,
-
                 "decision": session.decision,
                 "valid_frames": session.valid_frames,
                 "pass_frames": session.pass_frames,
@@ -697,24 +824,19 @@ def main() -> None:
                 "pass_ratio": session.pass_ratio,
                 "fail_ratio": session.fail_ratio,
                 "uncertain_ratio": session.uncertain_ratio,
-
                 "mean_sim_recommended": session.mean_sim_rec,
                 "min_sim_recommended": session.min_sim_rec,
                 "mean_sim_best": session.mean_sim_best,
                 "min_sim_best": session.min_sim_best,
-
                 "top_wrong_class": session.top_wrong_class,
                 "top_wrong_count": session.top_wrong_count,
-
                 "latency_ms": session.latency_ms,
-
                 "tau": tau,
                 "tau_source": tau_source,
                 "margin": args.margin,
                 "min_valid": args.min_valid,
                 "duration_s": args.duration,
                 "interval_ms": args.interval_ms,
-
                 "model_backbone": backbone,
                 "embedding_dim": embedding_dim,
                 "input_size": input_size,
@@ -731,4 +853,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
