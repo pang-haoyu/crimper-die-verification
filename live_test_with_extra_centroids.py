@@ -670,236 +670,238 @@ def main() -> None:
     centroids_np = np.load(str(centroids_path))
     if centroids_np.ndim != 2:
         raise SystemExit("centroids.npy must be a 2D array (C,D).")
-centroids_np = centroids_np.astype(np.float32, copy=False)
+    centroids_np = centroids_np.astype(np.float32, copy=False)
 
-# Optionally append extra (open-set) centroids
-extra_classes: List[str] = []
-extra_centroids: List[np.ndarray] = []
-if args.extra_centroids_dir.strip():
-    extra_dir = Path(args.extra_centroids_dir)
-    if not extra_dir.exists():
-        raise SystemExit(f"--extra-centroids-dir does not exist: {extra_dir}")
+    # Optionally append extra (open-set) centroids
+    extra_classes: List[str] = []
+    extra_centroids: List[np.ndarray] = []
+    if args.extra_centroids_dir.strip():
+        extra_dir = Path(args.extra_centroids_dir)
+        if not extra_dir.exists():
+            raise SystemExit(f"--extra-centroids-dir does not exist: {extra_dir}")
 
-    for npy_path in sorted(extra_dir.glob("*.npy")):
-        stem = npy_path.stem  # e.g. "die_24_centroid" or "die_24"
-        die_name = stem[:-len("_centroid")] if stem.endswith("_centroid") else stem
+        for npy_path in sorted(extra_dir.glob("*.npy")):
+            stem = npy_path.stem  # e.g. "die_24_centroid" or "die_24"
+            die_name = stem[: -len("_centroid")] if stem.endswith("_centroid") else stem
 
-        v = np.load(str(npy_path)).astype(np.float32, copy=False)
-        if v.ndim != 1:
-            raise SystemExit(f"Extra centroid must be 1D (D,), got shape={v.shape} from {npy_path}")
-        if v.shape[0] != centroids_np.shape[1]:
-            raise SystemExit(
-                f"Extra centroid dim mismatch: got {v.shape[0]} but base centroids have D={centroids_np.shape[1]} "
-                f"(file: {npy_path})"
-            )
-        if die_name in classes or die_name in extra_classes:
-            raise SystemExit(
-                f"Duplicate die name '{die_name}' from extra centroid file {npy_path}. "
-                "Extra centroid names must not collide with existing classes."
-            )
-
-        extra_classes.append(die_name)
-        extra_centroids.append(v)
-
-    if extra_centroids:
-        centroids_np = np.vstack([centroids_np, np.stack(extra_centroids, axis=0)])
-        classes = list(classes) + extra_classes
-    centroids = torch.from_numpy(centroids_np).float()
-    centroids = l2_normalize(centroids).to(device)
-
-    if centroids.shape[0] != len(classes):
-        raise SystemExit(
-            f"Centroids count ({centroids.shape[0]}) != number of classes ({len(classes)})."
-        )
-
-    class_to_idx = {c: i for i, c in enumerate(classes)}
-
-    # Validate pairs against known classes
-    for i, r in enumerate(pairs):
-        if r["recommended"] not in class_to_idx:
-            raise SystemExit(
-                f"Pairs[{i}].recommended='{r['recommended']}' not in model classes: {classes}"
-            )
-        if r["installed"] not in class_to_idx:
-            raise SystemExit(
-                f"Pairs[{i}].installed='{r['installed']}' not in model classes: {classes}"
-            )
-
-    tfm = build_val_transform(input_size=input_size)
-
-    expected_ids = None
-    if args.ids.strip():
-        expected_ids = [int(x.strip()) for x in args.ids.split(",") if x.strip()]
-        if len(expected_ids) != 4:
-            raise SystemExit("--ids must have exactly 4 IDs.")
-    aruco_dict = get_aruco_dict(args.aruco_dict)
-
-    # Camera
-    cap = cv2.VideoCapture(args.camera)
-    if not cap.isOpened():
-        raise SystemExit(f"Could not open camera index {args.camera}")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(args.width))
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(args.height))
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print("Controls:")
-    print("  n : next pair")
-    print("  b : previous pair")
-    print("  v or SPACE : run 3s validation for current pair")
-    print("  q or ESC : quit")
-    print("")
-    print(f"Model classes: {classes}")
-    if args.extra_centroids_dir.strip() and extra_classes:
-        print(f"Extra centroids loaded: {extra_classes}")
-    print(
-        f"tau={tau:.6f} (source={tau_source})  margin={args.margin:.3f}  min_valid={args.min_valid}"
-    )
-    print(f"Logging to: {out_path.resolve()}")
-
-    idx = 0
-    last_session: Optional[SessionDecision] = None
-
-    while True:
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            continue
-
-        det = detect_and_warp(
-            frame_bgr=frame,
-            aruco_dict=aruco_dict,
-            out_size=args.roi_size,
-            expected_ids=expected_ids,
-            min_area=args.min_marker_area,
-        )
-
-        pair = pairs[idx]
-        recommended = pair["recommended"]
-        installed = pair["installed"]
-        ptype = pair.get("type", "")
-
-        cam_vis = frame.copy()
-        if det is not None:
-            cv2.polylines(cam_vis, [det.debug_poly], True, (0, 255, 0), 2)
-
-        lines = [
-            f"Pair {idx + 1}/{len(pairs)}  type={ptype}",
-            f"Recommended: {recommended}",
-            f"Installed:   {installed}",
-            f"tau={tau:.4f} margin={args.margin:.3f} min_valid={args.min_valid}",
-            "Keys: n/b navigate | v/SPACE validate | q quit",
-        ]
-
-        if last_session is not None:
-            lines += [
-                f"Last session: {last_session.decision}  valid={last_session.valid_frames}  "
-                f"P/F/U={last_session.pass_frames}/{last_session.fail_frames}/{last_session.uncertain_frames}",
-                f"ratios P/F/U={last_session.pass_ratio:.2f}/{last_session.fail_ratio:.2f}/{last_session.uncertain_ratio:.2f}  "
-                f"latency={last_session.latency_ms:.0f}ms",
-            ]
-            if (
-                last_session.decision == "FAIL"
-                and last_session.top_wrong_class is not None
-            ):
-                lines.append(
-                    f"FAIL mostly matched: {last_session.top_wrong_class} (count={last_session.top_wrong_count})"
+            v = np.load(str(npy_path)).astype(np.float32, copy=False)
+            if v.ndim != 1:
+                raise SystemExit(
+                    f"Extra centroid must be 1D (D,), got shape={v.shape} from {npy_path}"
+                )
+            if v.shape[0] != centroids_np.shape[1]:
+                raise SystemExit(
+                    f"Extra centroid dim mismatch: got {v.shape[0]} but base centroids have D={centroids_np.shape[1]} "
+                    f"(file: {npy_path})"
+                )
+            if die_name in classes or die_name in extra_classes:
+                raise SystemExit(
+                    f"Duplicate die name '{die_name}' from extra centroid file {npy_path}. "
+                    "Extra centroid names must not collide with existing classes."
                 )
 
-        cam_vis = draw_overlay(cam_vis, lines)
-        cv2.imshow("Live Camera", cam_vis)
+            extra_classes.append(die_name)
+            extra_centroids.append(v)
 
-        if det is not None:
-            cv2.imshow("ROI Crop", det.warped)
-        else:
-            blank = np.zeros((args.roi_size, args.roi_size, 3), dtype=np.uint8)
-            cv2.putText(
-                blank,
-                "NO ROI",
-                (30, args.roi_size // 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (255, 255, 255),
-                2,
+        if extra_centroids:
+            centroids_np = np.vstack([centroids_np, np.stack(extra_centroids, axis=0)])
+            classes = list(classes) + extra_classes
+        centroids = torch.from_numpy(centroids_np).float()
+        centroids = l2_normalize(centroids).to(device)
+
+        if centroids.shape[0] != len(classes):
+            raise SystemExit(
+                f"Centroids count ({centroids.shape[0]}) != number of classes ({len(classes)})."
             )
-            cv2.imshow("ROI Crop", blank)
 
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord("q"), 27):
-            break
-        elif key == ord("n"):
-            idx = (idx + 1) % len(pairs)
-            last_session = None
-        elif key == ord("b"):
-            idx = (idx - 1) % len(pairs)
-            last_session = None
-        elif key in (ord("v"), 32):
-            session, _, _ = run_session(
-                cap=cap,
+        class_to_idx = {c: i for i, c in enumerate(classes)}
+
+        # Validate pairs against known classes
+        for i, r in enumerate(pairs):
+            if r["recommended"] not in class_to_idx:
+                raise SystemExit(
+                    f"Pairs[{i}].recommended='{r['recommended']}' not in model classes: {classes}"
+                )
+            if r["installed"] not in class_to_idx:
+                raise SystemExit(
+                    f"Pairs[{i}].installed='{r['installed']}' not in model classes: {classes}"
+                )
+
+        tfm = build_val_transform(input_size=input_size)
+
+        expected_ids = None
+        if args.ids.strip():
+            expected_ids = [int(x.strip()) for x in args.ids.split(",") if x.strip()]
+            if len(expected_ids) != 4:
+                raise SystemExit("--ids must have exactly 4 IDs.")
+        aruco_dict = get_aruco_dict(args.aruco_dict)
+
+        # Camera
+        cap = cv2.VideoCapture(args.camera)
+        if not cap.isOpened():
+            raise SystemExit(f"Could not open camera index {args.camera}")
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(args.width))
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(args.height))
+
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print("Controls:")
+        print("  n : next pair")
+        print("  b : previous pair")
+        print("  v or SPACE : run 3s validation for current pair")
+        print("  q or ESC : quit")
+        print("")
+        print(f"Model classes: {classes}")
+        if args.extra_centroids_dir.strip() and extra_classes:
+            print(f"Extra centroids loaded: {extra_classes}")
+        print(
+            f"tau={tau:.6f} (source={tau_source})  margin={args.margin:.3f}  min_valid={args.min_valid}"
+        )
+        print(f"Logging to: {out_path.resolve()}")
+
+        idx = 0
+        last_session: Optional[SessionDecision] = None
+
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+
+            det = detect_and_warp(
+                frame_bgr=frame,
                 aruco_dict=aruco_dict,
+                out_size=args.roi_size,
                 expected_ids=expected_ids,
-                roi_size=args.roi_size,
-                min_marker_area=args.min_marker_area,
-                model=model,
-                centroids=centroids,
-                classes=classes,
-                class_to_idx=class_to_idx,
-                recommended=recommended,
-                tau=tau,
-                margin=args.margin,
-                duration_s=args.duration,
-                interval_ms=args.interval_ms,
-                min_valid=args.min_valid,
-                device=device,
-                tfm=tfm,
-                preview_windows=True,
+                min_area=args.min_marker_area,
             )
-            last_session = session
 
-            is_correct = bool(recommended == installed)
+            pair = pairs[idx]
+            recommended = pair["recommended"]
+            installed = pair["installed"]
+            ptype = pair.get("type", "")
 
-            record = {
-                "timestamp": time.time(),
-                "pair_index": idx,
-                "pair_type": ptype,
-                "recommended": recommended,
-                "installed": installed,
-                "is_correct": is_correct,
-                "decision": session.decision,
-                "valid_frames": session.valid_frames,
-                "pass_frames": session.pass_frames,
-                "fail_frames": session.fail_frames,
-                "uncertain_frames": session.uncertain_frames,
-                "pass_ratio": session.pass_ratio,
-                "fail_ratio": session.fail_ratio,
-                "uncertain_ratio": session.uncertain_ratio,
-                "mean_sim_recommended": session.mean_sim_rec,
-                "min_sim_recommended": session.min_sim_rec,
-                "mean_sim_best": session.mean_sim_best,
-                "min_sim_best": session.min_sim_best,
-                "top_wrong_class": session.top_wrong_class,
-                "top_wrong_count": session.top_wrong_count,
-                "latency_ms": session.latency_ms,
-                "tau": tau,
-                "tau_source": tau_source,
-                "margin": args.margin,
-                "min_valid": args.min_valid,
-                "duration_s": args.duration,
-                "interval_ms": args.interval_ms,
-                "model_backbone": backbone,
-                "embedding_dim": embedding_dim,
-                "input_size": input_size,
-                "classes": classes,
-            "extra_centroids_dir": args.extra_centroids_dir,
-                "extra_classes": extra_classes,
-            }
+            cam_vis = frame.copy()
+            if det is not None:
+                cv2.polylines(cam_vis, [det.debug_poly], True, (0, 255, 0), 2)
 
-            with out_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
+            lines = [
+                f"Pair {idx + 1}/{len(pairs)}  type={ptype}",
+                f"Recommended: {recommended}",
+                f"Installed:   {installed}",
+                f"tau={tau:.4f} margin={args.margin:.3f} min_valid={args.min_valid}",
+                "Keys: n/b navigate | v/SPACE validate | q quit",
+            ]
 
-    cap.release()
-    cv2.destroyAllWindows()
-    print(f"Done. Results saved to: {out_path.resolve()}")
+            if last_session is not None:
+                lines += [
+                    f"Last session: {last_session.decision}  valid={last_session.valid_frames}  "
+                    f"P/F/U={last_session.pass_frames}/{last_session.fail_frames}/{last_session.uncertain_frames}",
+                    f"ratios P/F/U={last_session.pass_ratio:.2f}/{last_session.fail_ratio:.2f}/{last_session.uncertain_ratio:.2f}  "
+                    f"latency={last_session.latency_ms:.0f}ms",
+                ]
+                if (
+                    last_session.decision == "FAIL"
+                    and last_session.top_wrong_class is not None
+                ):
+                    lines.append(
+                        f"FAIL mostly matched: {last_session.top_wrong_class} (count={last_session.top_wrong_count})"
+                    )
+
+            cam_vis = draw_overlay(cam_vis, lines)
+            cv2.imshow("Live Camera", cam_vis)
+
+            if det is not None:
+                cv2.imshow("ROI Crop", det.warped)
+            else:
+                blank = np.zeros((args.roi_size, args.roi_size, 3), dtype=np.uint8)
+                cv2.putText(
+                    blank,
+                    "NO ROI",
+                    (30, args.roi_size // 2),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (255, 255, 255),
+                    2,
+                )
+                cv2.imshow("ROI Crop", blank)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):
+                break
+            elif key == ord("n"):
+                idx = (idx + 1) % len(pairs)
+                last_session = None
+            elif key == ord("b"):
+                idx = (idx - 1) % len(pairs)
+                last_session = None
+            elif key in (ord("v"), 32):
+                session, _, _ = run_session(
+                    cap=cap,
+                    aruco_dict=aruco_dict,
+                    expected_ids=expected_ids,
+                    roi_size=args.roi_size,
+                    min_marker_area=args.min_marker_area,
+                    model=model,
+                    centroids=centroids,
+                    classes=classes,
+                    class_to_idx=class_to_idx,
+                    recommended=recommended,
+                    tau=tau,
+                    margin=args.margin,
+                    duration_s=args.duration,
+                    interval_ms=args.interval_ms,
+                    min_valid=args.min_valid,
+                    device=device,
+                    tfm=tfm,
+                    preview_windows=True,
+                )
+                last_session = session
+
+                is_correct = bool(recommended == installed)
+
+                record = {
+                    "timestamp": time.time(),
+                    "pair_index": idx,
+                    "pair_type": ptype,
+                    "recommended": recommended,
+                    "installed": installed,
+                    "is_correct": is_correct,
+                    "decision": session.decision,
+                    "valid_frames": session.valid_frames,
+                    "pass_frames": session.pass_frames,
+                    "fail_frames": session.fail_frames,
+                    "uncertain_frames": session.uncertain_frames,
+                    "pass_ratio": session.pass_ratio,
+                    "fail_ratio": session.fail_ratio,
+                    "uncertain_ratio": session.uncertain_ratio,
+                    "mean_sim_recommended": session.mean_sim_rec,
+                    "min_sim_recommended": session.min_sim_rec,
+                    "mean_sim_best": session.mean_sim_best,
+                    "min_sim_best": session.min_sim_best,
+                    "top_wrong_class": session.top_wrong_class,
+                    "top_wrong_count": session.top_wrong_count,
+                    "latency_ms": session.latency_ms,
+                    "tau": tau,
+                    "tau_source": tau_source,
+                    "margin": args.margin,
+                    "min_valid": args.min_valid,
+                    "duration_s": args.duration,
+                    "interval_ms": args.interval_ms,
+                    "model_backbone": backbone,
+                    "embedding_dim": embedding_dim,
+                    "input_size": input_size,
+                    "classes": classes,
+                    "extra_centroids_dir": args.extra_centroids_dir,
+                    "extra_classes": extra_classes,
+                }
+
+                with out_path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(record) + "\n")
+
+        cap.release()
+        cv2.destroyAllWindows()
+        print(f"Done. Results saved to: {out_path.resolve()}")
 
 
 if __name__ == "__main__":
