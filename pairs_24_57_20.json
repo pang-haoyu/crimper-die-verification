@@ -1,0 +1,102 @@
+[
+  {
+    "recommended": "die_24",
+    "installed": "die_24",
+    "type": "positive"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_17",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_20",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_28",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_32",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_36",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_40",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_44",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_50",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_24",
+    "installed": "die_57",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_57",
+    "type": "positive"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_17",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_20",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_28",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_32",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_36",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_40",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_44",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_50",
+    "type": "easy_negative"
+  },
+  {
+    "recommended": "die_57",
+    "installed": "die_24",
+    "type": "easy_negative"
+  }
+]
